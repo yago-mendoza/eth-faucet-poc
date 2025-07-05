@@ -1,270 +1,699 @@
+> **⚠️ DISCLAIMER**: These are just some rough notes I put together while working on this project. I wrote them as I went, so things might be a bit scattered or unfinished in parts (especially toward the end). I realized that after pushing it, but decided to leave it in as-is — it reflects the actual flow of how I approached and figured things out. It's also handy to have a quick reference to glance back at when needed.
+
 # Summary
 
-Queremos crear un servicio que permita a un usuario conectarse con MetaMask y obtener fondos limitados (ej. 0.1 ETH), consultar balances, y transferir fondos entre cuentas desde MetaMask. La interfaz tendrá rutas `/faucet`, `/balance` y `/transfer`, y un icono verde o rojo según el estado del nodo Ethereum. Las pruebas incluyen obtener saldo, enviar fondos y transferir desde MetaMask. La arquitectura incluye una app React en TypeScript con Tailwind y ShadCN, un backend en Node.js con Express y TypeScript, y un nodo Ethereum en Docker con Proof of Authority. El proyecto se inicia con `npm create vite@latest`, se configura Tailwind, se instala ShadCN desde su web, y se crea el backend con rutas: `POST /api/faucet/:address/:amount`, `GET /api/balance/:address`, `GET /api/isAlive`. La ruta de transferencia se hace desde el front con MetaMask. Las pruebas se hacen con `curl` o Postman. El header del front incluye navegación, conexión a MetaMask y verificación periódica del estado del nodo. Se crean los componentes Faucet, Transfer y Balance, con rutas definidas y navegación probada. Se instala `react-hook-form` y `zod` para validación, se crean formularios para cada componente, se hacen las llamadas al backend, y se controlan errores. El faucet pide dirección, transfer dirección y monto, balance solo dirección. Se debe grabar un video con pruebas y un `README.md` con instrucciones. El despliegue puede hacerse en Vercel (front y back), exponiendo el nodo con Ngrok, configurando las variables de entorno, y permitiendo acceso desde MetaMask. También se puede desplegar en AWS creando una cuenta, red, EC2, configurando el nodo sin Docker, bajando los repos, y probando.
+We want to build a service that allows users to connect via MetaMask, receive limited test funds (e.g. 0.1 ETH), check their balances, and transfer funds between accounts using MetaMask. The UI will include `/faucet`, `/balance`, and `/transfer` routes, along with a green or red status icon depending on the Ethereum node’s availability.
+
+Testing covers getting balances, sending funds, and transferring via MetaMask. The architecture includes a React app in TypeScript using Tailwind and ShadCN, a Node.js + Express backend (also in TypeScript), and an Ethereum node running in Docker with Proof of Authority consensus.
+
+The project starts with `npm create vite@latest`. Tailwind is configured, ShadCN is installed via its website, and the backend is created with the following routes:
+
+* `POST /api/faucet/:address/:amount`
+* `GET /api/balance/:address`
+* `GET /api/isAlive`
+
+Transfers are handled from the frontend via MetaMask. Backend endpoints are tested with `curl` or Postman.
+
+The frontend includes a header with navigation, MetaMask connection, and periodic node health checks. Components for Faucet, Transfer, and Balance are created with routes and navigation tested. Forms are built using `react-hook-form` and `zod` for validation. Each component handles user input, triggers backend requests, and manages errors.
+
+* Faucet asks for an address.
+* Transfer asks for address and amount.
+* Balance just needs the address.
+
+A demo video with tests should be recorded, along with a `README.md` with setup instructions.
+
+For deployment, the frontend and backend can be deployed to Vercel. The Ethereum node can be exposed using Ngrok, with environment variables configured and MetaMask access enabled. Alternatively, I can deploy on AWS by creating an account, setting up a VPC and EC2 instance, installing the node manually (no Docker), cloning the repos, and running tests.
 
 # Steps
 
 ## 1. Setting frontend up
 
-Has creado un proyecto React con Vite usando TypeScript, luego instalaste Tailwind CSS v3 (que requiere PostCSS como motor de transformación CSS y Autoprefixer para compatibilidad cross-browser como dependencias de desarrollo para procesar y optimizar el CSS), y ejecutaste `npx tailwindcss init -p` que genera los archivos de configuración `tailwind.config.js` (que define qué archivos escanear para encontrar clases CSS y configurar el sistema de purga que elimina CSS no usado) y `postcss.config.js` (que le dice a Vite cómo procesar Tailwind en el pipeline de build). El problema inicial era que Tailwind no aplicaba estilos porque en `tailwind.config.js` la propiedad `content` no incluía las rutas correctas de tus archivos React - necesitaba `"./src/**/*.{js,ts,jsx,tsx}"` para que Tailwind supiera dónde buscar las clases como `text-3xl` y generara solo el CSS que realmente usas (optimización de bundle size). Luego quisiste agregar shadcn/ui, que son componentes pre-construidos (código fuente React copiable, no una librería npm) que usan Tailwind internamente y proporcionan funcionalidad completa (estilos + comportamiento + accesibilidad + variantes de diseño), pero shadcn/ui necesita aliases de importación para funcionar (como `@/components` en lugar de `../../../components` para imports más limpios y relocalizables). Vite moderno usa una arquitectura TypeScript modular (Project References) donde `tsconfig.json` es solo un coordinador (orquestador de múltiples configuraciones) que apunta a `tsconfig.app.json` (configuración específica para tu código React con reglas de linting y paths) y `tsconfig.node.json` (configuración para herramientas de build como Vite con diferentes targets de compilación), así que agregaste `baseUrl: "."` (punto de referencia para rutas relativas) y `paths: {"@/*": ["./src/*"]}` (mapeo de alias) en `tsconfig.app.json` y el alias correspondiente en `vite.config.ts` (configuración del bundler para resolución de módulos). Cuando ejecutaste `npx shadcn@latest init`, falló porque shadcn/ui buscaba la configuración de aliases en el `tsconfig.json` coordinador (que está vacío por diseño en la nueva arquitectura) en lugar de en `tsconfig.app.json` (donde están las configuraciones reales), por lo que tuviste que crear manualmente `components.json` (archivo de configuración que le dice a shadcn/ui dónde instalar componentes como código fuente editable y cómo configurarlos con paths, estilos y aliases), instalar las dependencias `clsx` (utilidad para concatenar classNames condicionalmente), `tailwind-merge` (resuelve conflictos entre clases Tailwind) y `class-variance-authority` (sistema de variantes para componentes que shadcn/ui usa para combinar clases CSS de forma inteligente y crear APIs de componentes consistentes), crear las carpetas `src/lib` (utilidades compartidas) y `src/components/ui` (componentes de interfaz), y el archivo `src/lib/utils.ts` con la función `cn()` (utility function que combina clsx y tailwind-merge) que shadcn/ui usa para manejar clases CSS condicionalmente (resolver conflictos y combinar variantes). Todo este proceso demuestra cómo las herramientas modernas de frontend se integran en capas: Vite maneja el empaquetado y desarrollo (dev server + HMR + build optimization), TypeScript proporciona tipado con configuración modular (separación de concerns entre app y tooling), Tailwind CSS genera utilidades de estilo procesadas por PostCSS (atomic CSS approach con purging), y shadcn/ui ofrece componentes (copy-paste approach vs npm packages) que combinan todo esto con alias de importación para mantener el código limpio y mantenible (developer experience + maintainability).
+I created a React project with Vite using TypeScript, then installed Tailwind CSS v3. Tailwind requires PostCSS as the CSS transformation engine and Autoprefixer for cross-browser compatibility—both as dev dependencies to process and optimize my styles.
+
+I ran `npx tailwindcss init -p`, which generated two config files:
+
+* `tailwind.config.js` — where I define which files Tailwind should scan for class names (also used for purge/optimization).
+* `postcss.config.js` — tells Vite how to run Tailwind in the build pipeline.
+
+At first, Tailwind styles weren’t applying because the `content` field in `tailwind.config.js` didn’t include the correct file paths. It needed `"./src/**/*.{js,ts,jsx,tsx}"` so Tailwind could find class names like `text-3xl` and generate only the styles actually used (for optimal bundle size).
+
+Next, I wanted to add **shadcn/ui**, which provides pre-built components (copy-pasteable React source code, not an npm library). These components use Tailwind internally and come with styling, behavior, accessibility, and design variants out of the box. However, shadcn/ui expects import aliases like `@/components` (instead of long relative paths like `../../../components`) to work properly.
+
+Modern Vite setups with TypeScript use a modular architecture (Project References). That means my root `tsconfig.json` acts as an orchestrator and delegates to more specific configs like:
+
+* `tsconfig.app.json` — for my React app (includes lint rules and alias paths).
+* `tsconfig.node.json` — for build tools like Vite (with different target settings).
+
+So, I added `baseUrl: "."` and alias mappings like `paths: { "@/*": ["./src/*"] }` to `tsconfig.app.json`, and updated `vite.config.ts` to match (so Vite resolves aliases correctly).
+
+Then, running `npx shadcn@latest init` failed — because shadcn/ui looks for aliases in the root `tsconfig.json`, which (by design) is mostly empty in this architecture. To fix this, I manually created a `components.json` config file to tell shadcn/ui where to install components, how to configure paths/styles, and which aliases to use.
+
+I also installed the required dependencies:
+
+* `clsx` — for conditionally joining class names.
+* `tailwind-merge` — to resolve conflicting Tailwind classes.
+* `class-variance-authority` — used by shadcn/ui to manage component variants and class logic.
+
+I created the `src/lib` folder (for shared utilities) and `src/components/ui` (for UI components), and added a `src/lib/utils.ts` file with the `cn()` function — a helper that combines `clsx` and `tailwind-merge`, used by shadcn/ui to handle conditional class names and resolve class conflicts.
+
+All of this showcases how modern frontend tooling fits together in layers:
+
+* **Vite** handles bundling, dev server, HMR, and optimized builds.
+* **TypeScript** offers type safety and modular config separation between app and tooling.
+* **Tailwind CSS** provides atomic styling processed via PostCSS, with tree-shaking for unused classes.
+* **shadcn/ui** adds composable components built with Tailwind and powered by import aliases for cleaner, maintainable code.
+
+Together, they form a stack that balances developer experience with long-term maintainability.
 
 ## 2. Setting backend up
 
-Has creado el proyecto backend desde cero usando `npm init -y` que genera un `package.json` básico con configuración CommonJS por defecto (a diferencia del frontend donde Vite proporcionaba scripts preconfigurados como `npm run dev`), luego instalaste Express como dependencia de producción (`npm install express`) que es el framework web asíncrono equivalente a Flask/FastAPI pero diseñado desde cero para Node.js basado en eventos. Como Express fue escrito en JavaScript puro antes de que existiera TypeScript, necesitaste instalar las definiciones de tipos por separado (`npm i @types/express @types/node -D`) que actúan como "documentación ejecutable" - paquetes independientes bajo el namespace `@types/` que contienen archivos `.d.ts` (type definitions) que le dicen a TypeScript qué métodos, propiedades y parámetros existen en librerías JavaScript, instalados como devDependencies porque solo se necesitan durante desarrollo/compilación, no en el bundle final de producción. Para ejecutar archivos TypeScript directamente sin compilación manual, configuraste un pipeline de desarrollo con `nodemon` (observador de archivos equivalente a `--reload` en Flask) ejecutando `ts-node` (compilador Just-In-Time que convierte TypeScript a JavaScript en memoria sin generar archivos .js), pero surgió un conflicto de sistemas de módulos porque Node.js intentaba usar ESM (ECMAScript Modules con `import/export`) mientras tu proyecto estaba configurado para CommonJS (`require/module.exports`), resuelto creando `tsconfig.json` con configuración específica que fuerza CommonJS en ts-node (`"module": "commonjs"`, `"ts-node": {"esm": false}`) y estableciendo las reglas de compilación (target ES2020, strict mode, interoperabilidad entre sistemas de módulos). Finalmente agregaste scripts personalizados en `package.json` (`"dev": "nodemon --watch . --ext ts --ignore node_modules --exec \"ts-node index.ts\" --legacy-watch"`, ya que los eventos nativos no funcionan al estar usando WSL2 en Windows)que actúan como aliases que aprovechan que npm añade automáticamente `node_modules/.bin` al PATH, permitiendo usar `npm run dev` en lugar del comando completo `npx nodemon --exec npx ts-node index.ts`, creando así un flujo de desarrollo profesional donde escribes TypeScript, nodemon detecta cambios, ts-node compila en memoria, y Node.js ejecuta el resultado - todo orquestado por un script simple que documenta claramente las operaciones disponibles para otros desarrolladores, contrastando con el frontend donde estas configuraciones venían preestablecidas por el template de Vite pero aquí requieren configuración manual porque Express es minimalista por diseño y cada proyecto backend tiene requisitos específicos diferentes.
+I set up the backend project from scratch using `npm init -y`, which generates a basic `package.json` with CommonJS configuration by default (unlike the frontend, where Vite comes with preconfigured scripts like `npm run dev`).
 
-**Arquitectura de Comunicación HTTP y Event Loop:**
+Then I installed Express as a production dependency (`npm install express`). Express is an asynchronous web framework, similar to Flask or FastAPI, but built from the ground up for Node.js’s event-driven architecture.
 
-Cuando tu frontend necesita comunicarse con el backend, utilizas `await fetch(url, options)` (fetch se está convirtiendo en el estándar) donde el segundo parámetro es un objeto de configuración que mapea directamente a los componentes de una petición HTTP: `method` especifica el verbo HTTP (GET por defecto para leer datos sin modificar nada, POST/PUT/DELETE para operaciones que cambian estado - diferencia semántica crucial porque GET debe ser idempotente y cacheable) equivalente a `curl -X POST`, `headers` define metadatos de la petición como `'Content-Type': 'application/json'` (equivalente a `curl -H 'Content-Type: application/json'`) que actúa como "contrato" entre frontend y backend especificando el formato de datos, y `body` contiene los datos reales pero DEBE ser string porque HTTP es protocolo de texto plano diseñado en los 90s (no objetos nativos de JavaScript que son construcciones de runtime), por eso usas `JSON.stringify(objeto)` para serializar tu objeto JavaScript a string JSON válido (equivalente a `curl -d '{"name":"Juan"}'`), proceso que invierte el parsing que hará el backend - esta conversión bidireccional objeto↔string es fundamental porque HTTP actúa como "túnel de texto" entre dos aplicaciones que pueden estar en lenguajes completamente diferentes.
+Since Express was originally written in plain JavaScript (before TypeScript was widespread), I had to install its type definitions separately with `npm i @types/express @types/node -D`. These `@types/*` packages are essentially executable documentation — standalone `.d.ts` files that tell TypeScript what functions, properties, and parameters exist in JavaScript libraries. I installed them as devDependencies since they’re only needed during development and not in the final production bundle.
 
-**Middleware y Parsing de Datos:**
+To run TypeScript files directly without compiling them manually, I set up a dev pipeline using `nodemon` (a file watcher, similar to Flask's `--reload`) to execute `ts-node` (a JIT compiler that runs TypeScript by converting it to JavaScript in memory).
 
-En Express, cuando ejecutas `app.listen(3000, callback)`, Express inmediatamente abre un socket TCP en el puerto 3000 (protocolo de transporte que gestiona conexiones de red a nivel del sistema operativo) y ejecuta el callback de confirmación sin bloquear el hilo principal, dejando el proceso "vivo" esperando eventos de red en el event loop asíncrono de Node.js (arquitectura fundamentalmente diferente a modelos síncronos donde el servidor se "bloquea" esperando requests), donde cada request HTTP que llega se convierte en un evento que desencadena la ejecución de handlers correspondientes pero el servidor nunca se "detiene" - simplemente registra listeners y confía en el event loop del runtime V8 para despachar eventos concurrentemente. El middleware `app.use(express.json())` DEBE ir ANTES de definir rutas porque actúa como "traductor universal" que intercepta requests con `Content-Type: application/json`, detecta el string JSON en el body crudo, lo parsea automáticamente a objeto JavaScript y lo coloca en `req.body` (sin este middleware crucial, `req.body` permanece undefined porque Express es minimalista por diseño y no asume formatos de datos), creando así el "puente" entre el string que viaja por HTTP y el objeto que manipulas en código - este middleware se ejecuta secuencialmente para cada request antes de llegar a rutas específicas, funcionando como "cadena de montaje" donde el orden importa crucialmente.
+Initially, I hit a module system conflict: Node.js was trying to use ESM (`import/export`), while my project was set up for CommonJS (`require/module.exports`). I resolved that by configuring `tsconfig.json` to explicitly enforce CommonJS for `ts-node`, setting `"module": "commonjs"` and `"ts-node": { "esm": false }`, along with other compile settings like `target: "ES2020"`, `strict: true`, and interop flags for smoother module resolution.
 
-**Parámetros de URL y Organización de Datos:**
+Then I added a custom script in `package.json`:
 
-Las URLs pueden llevar parámetros dinámicos usando la sintaxis `:parametro` en la definición de ruta (`app.get('/users/:id/:action')`) donde Express automáticamente extrae valores de la URL real (`/users/123/edit`) usando pattern matching y los mapea a `req.params.id="123"` y `req.params.action="edit"` (siempre strings, nunca números automáticamente), accesibles elegantemente mediante destructuring `const { id, action } = req.params` (patrón ES6+ más limpio que acceso directo `req.params.id` y que permite renombrado `const { id: userId } = req.params`), mientras que Express organiza diferentes tipos de datos en espacios separados para evitar conflictos: `req.params` para parámetros de ruta extraídos de `/users/:id`, `req.query` para query strings parseados de `?page=1&limit=10`, `req.body` para datos JSON de POST/PUT procesados por middleware, y `req.headers` para metadatos HTTP como User-Agent y Authorization (esta separación evita que un parámetro `:id` colisione con un `?id=` en query string).
+```json
+"scripts": {
+  "dev": "nodemon --watch . --ext ts --ignore node_modules --exec \"ts-node index.ts\" --legacy-watch"
+}
+```
 
-**Respuestas y Manejo de Datos:**
+I used `--legacy-watch` because I’m working in WSL2 on Windows, where native file system events don’t work reliably. This setup lets me run `npm run dev`, which is cleaner than typing out the full command with `npx`. It works because npm automatically includes `node_modules/.bin` in the PATH.
 
-Para responder, Express ofrece métodos especializados con diferentes semánticas: `res.json(objeto)` para datos estructurados (automáticamente añade `Content-Type: application/json`, ejecuta `JSON.stringify` interno, y permite al frontend usar `response.json()` para parsing automático), `res.send(string)` para texto plano/HTML/números (más flexible pero menos semántico, Express intenta detectar el tipo automáticamente), usando template literals `` `Usuario ${name} creado con ID ${id}` `` para interpolación de variables que es más legible que concatenación tradicional con + y permite expresiones JavaScript complejas dentro de ${} incluyendo llamadas a funciones o operaciones ternarias. Los métodos HTTP tienen propósitos específicos que el frontend debe respetar: GET para obtener datos (sin body, cacheable, idempotente), POST para crear recursos (con body, no idempotente), PUT para actualizar completo (con body, idempotente), PATCH para actualizar parcial, DELETE para eliminar (idempotente) - esta semántica HTTP permite a proxies, caches y navegadores optimizar automáticamente el comportamiento de red.
+Now I have a professional dev workflow: I write in TypeScript, `nodemon` watches for changes, `ts-node` compiles on the fly, and Node.js runs the result — all wired together through a simple `npm` script that also documents the process for other developers.
 
-**Edge Cases y Buenas Prácticas:**
+Compared to the frontend (where Vite handles most of this out of the box), setting up Express required more manual config — but that’s by design. Express is intentionally minimal, so backend setups are more tailored to the specific needs of each project.
 
-Edge cases que causarán frustración inevitable: olvidar `express.json()` resulta en `req.body` perpetuamente undefined sin error obvio (el request llega pero el body permanece como stream sin procesar), olvidar `JSON.stringify()` en fetch envía literalmente la string "[object Object]" porque JavaScript convierte automáticamente objetos a string con .toString(), usar GET con body se ignora silenciosamente por estándar HTTP porque GET debe ser idempotente y cacheable, destructuring de `req.params` undefined explota la aplicación sin manejo de errores (`const { id } = undefined` lanza TypeError), no validar tipos de parámetros puede causar crashes sutiles (`:id` siempre es string, usar `parseInt(id)` para números), y el orden de middleware importa crucialmente porque se ejecutan secuencialmente (parsers antes de rutas, autenticación antes de autorización, manejo de errores al final). Las prácticas modernas incluyen destructuring sistemático para extraer propiedades (`const { name, email } = req.body` permite detectar propiedades faltantes fácilmente vs acceso directo que puede fallar silenciosamente), async/await con manejo explícito de errores try/catch (especialmente para operaciones de base de datos), validación de entrada ANTES de lógica de negocio usando librerías como joi o zod, códigos HTTP semánticamente correctos (200 OK para éxito sin crear recursos, 201 Created para recursos nuevos con Location header, 400 Bad Request para errores de validación del cliente, 404 Not Found para recursos inexistentes, 500 Internal Server Error para fallos inesperados del servidor), estructura de respuestas API consistente tipo `{ success: boolean, data: any, message: string, timestamp: new Date().toISOString() }` que permite al frontend manejar respuestas uniformemente independientemente del endpoint específico, y separación clara entre routes (definición de endpoints y validación básica), controllers (lógica de negocio y transformación de datos), services (operaciones de base de datos y APIs externas), y middlewares (funcionalidad transversal como autenticación, logging, rate limiting), creando arquitectura escalable donde cada componente tiene responsabilidad única y bien definida, facilitando testing unitario y mantenimiento a largo plazo.
+### HTTP Communication Architecture and Event Loop
 
-**CORS Setup y Edge Cases**
+When my frontend needs to communicate with the backend, I use `await fetch(url, options)`. `fetch` is quickly becoming the standard for making HTTP requests in modern JavaScript.
 
-Instalas `npm i cors @types/cors` porque necesitas permitir que tu frontend (puerto 3000) acceda a tu backend (puerto 3000) - sin esto el navegador bloquea las peticiones cross-origin por seguridad. El `app.use(cors())` debe ir ANTES de tus rutas (orden de middleware crucial) y básicamente añade headers como `Access-Control-Allow-Origin: *` que le dicen al browser "está bien, acepta estas peticiones".
+The second parameter, `options`, is a config object that maps directly to components of an HTTP request:
+
+* `method` specifies the HTTP verb. It's `GET` by default (used for reading data without modifying anything). Other verbs like `POST`, `PUT`, or `DELETE` are used for state-changing operations. This distinction is important: `GET` should be idempotent and cacheable, whereas `POST` and `PUT` are not. It’s essentially the same as using `curl -X POST`.
+
+* `headers` define metadata for the request. A common example is `'Content-Type': 'application/json'`, which acts as a kind of "contract" between frontend and backend — it tells the server what format to expect. This is equivalent to `curl -H 'Content-Type: application/json'`.
+
+* `body` contains the actual data being sent — but it **must** be a string. HTTP is a plain-text protocol from the 1990s, so it doesn’t understand native JavaScript objects. That’s why I use `JSON.stringify(obj)` to serialize JavaScript objects into valid JSON strings. This is equivalent to `curl -d '{"name":"Juan"}'`.
+
+On the backend, this string will later be parsed back into an object — effectively reversing the serialization process. That object-to-string-to-object conversion is fundamental when communicating over HTTP, since it's just a text-based "tunnel" between two potentially unrelated applications (they could even be written in different languages).
+
+### Middleware and Data Parsing
+
+
+In Express, when I call `app.listen(3000, callback)`, Express immediately opens a TCP socket on port 3000. TCP is the transport-layer protocol responsible for handling network connections at the OS level.
+
+The `listen` call triggers the callback without blocking the main thread — instead, it leaves the process "alive," sitting in Node.js’s asynchronous event loop. This is fundamentally different from synchronous server models where the server might block while waiting for requests.
+
+In Node.js, every incoming HTTP request is treated as an event. The server doesn’t stop or wait — it simply registers handlers (listeners) for those events and relies on the V8 engine's event loop to dispatch them concurrently.
+
+Now, regarding middleware: I always place `app.use(express.json())` **before** defining any routes. This middleware acts like a "universal translator" — it intercepts any request with the `Content-Type: application/json`, extracts the raw JSON string from the body, parses it into a JavaScript object, and assigns it to `req.body`.
+
+Without this middleware, `req.body` would be `undefined`, because Express is intentionally minimal and doesn’t assume any particular data format by default. This middleware creates the bridge between the plain text that travels over HTTP and the JavaScript object I work with in code.
+
+Middleware in Express is executed in order, for **every** request. It works like a processing pipeline — a kind of "assembly line" — so the order matters a lot. If `express.json()` comes after route definitions, it simply won’t run in time to process the body, and my routes won’t receive the parsed data.
+
+### URL Parameters and Data Organization
+
+In Express, I can define dynamic URL parameters using the `:param` syntax in route definitions — for example, `app.get('/users/:id/:action')`. Express automatically performs pattern matching against the incoming URL (e.g. `/users/123/edit`) and maps the matched segments to `req.params`. In that case, `req.params.id === "123"` and `req.params.action === "edit"`.
+
+It's important to note that these values are **always strings**, even if they look like numbers. If I need them as actual numbers, I have to convert them manually.
+
+I usually access these parameters using ES6+ destructuring, which makes the code cleaner:
+
+```ts
+const { id, action } = req.params;
+```
+
+If I need to rename a param for clarity or consistency, destructuring also supports that:
+
+```ts
+const { id: userId } = req.params;
+```
+
+Express keeps different types of incoming data in separate namespaces to avoid conflicts:
+
+* `req.params` holds route parameters (e.g. `/users/:id`)
+* `req.query` contains parsed query strings (e.g. `?page=1&limit=10`)
+* `req.body` contains parsed JSON from the request body (e.g. from a POST or PUT), which is made available via middleware like `express.json()`
+* `req.headers` holds HTTP metadata like `User-Agent`, `Authorization`, etc.
+
+This clear separation ensures that a route param like `:id` won’t conflict with a query param `?id=...` or a property in the request body. Each source of input data is isolated, which helps keep routing logic clean, predictable, and maintainable.
+
+### Responses and Data Handling
+
+In Express, I use different response methods depending on the type of data I want to return, each with its own semantics:
+
+* `res.json(object)` is my go-to for structured data. It automatically sets the `Content-Type` header to `application/json`, internally runs `JSON.stringify()`, and makes it easy for the frontend to parse the response using `response.json()`.
+
+* `res.send(string)` is more flexible — I use it for plain text, HTML, or even numbers. Express tries to infer the correct content type automatically, but it’s less semantically strict than `res.json()`.
+
+When building response messages, I prefer template literals like:
+
+```js
+res.send(`User ${name} created with ID ${id}`);
+```
+
+Template literals are more readable than traditional string concatenation with `+`, and they allow me to include complex expressions directly inside `${}` — including function calls, ternary expressions, or logic.
+
+On the frontend side, it's important to respect the semantics of HTTP methods:
+
+* `GET`: for retrieving data (no body, cacheable, and idempotent — making it safe for repeated use)
+* `POST`: for creating resources (has a body, not idempotent — each call usually creates something new)
+* `PUT`: for fully updating an existing resource (has a body, and **is** idempotent — repeating the request yields the same result)
+* `PATCH`: for partial updates
+* `DELETE`: for removing resources (also idempotent)
+
+Following these HTTP conventions isn’t just good practice — it allows intermediaries like proxies, caches, and browsers to optimize behavior automatically. It makes both the client and server more predictable and interoperable across the web.
+
+### Edge Cases and Best Practices
+
+### Edge Cases That Will Inevitably Cause Frustration
+
+There are a number of common pitfalls in Express that can lead to hours of confusion if you’re not careful. These are the ones I’ve personally hit — and now avoid religiously:
+
+* **Forgetting `express.json()`**: If I don’t register this middleware before my routes, `req.body` will always be `undefined`. No error is thrown, the request "works," but the body remains an unparsed raw stream. Easy to miss, hard to debug.
+
+* **Forgetting `JSON.stringify()` in `fetch()`**: If I send a plain object as the body, JavaScript will convert it to the string `"[object Object]"`, because of how `.toString()` works on objects. Always stringify before sending.
+
+* **Using `GET` with a body**: This is silently ignored. By HTTP standards, GET requests must be cacheable and idempotent, and they’re not supposed to include a body. Most servers and browsers just drop it.
+
+* **Destructuring `req.params` when it's undefined**: If I destructure from something that’s `undefined` — like `const { id } = req.params`, when the route doesn’t match — the app crashes with a `TypeError`. Always make sure the object exists or use optional chaining/default values.
+
+* **Not validating parameter types**: Route parameters like `:id` are always strings, even if they look numeric. Using them as numbers without conversion (e.g. `parseInt(id)`) can cause subtle bugs or crashes later in logic.
+
+* **Incorrect middleware order**: Middleware is executed sequentially, so order is critical:
+
+  * Parsers (e.g. `express.json()`) must come before routes
+  * Auth middleware should come before access control or business logic
+  * Error-handling middleware must come last
+
+---
+
+### Modern Best Practices I Follow
+
+* **Consistent destructuring**: I always destructure `req.body`, `req.params`, and `req.query`:
+
+  ```ts
+  const { name, email } = req.body;
+  ```
+
+  This makes it easy to see what's expected and spot missing fields. It’s far better than deep `req.body.email` checks that silently fail.
+
+* **Async/await with proper error handling**: Especially for database calls or any async logic, I always wrap my controllers in `try/catch` blocks to prevent unhandled rejections and make errors explicit.
+
+* **Input validation upfront**: Before doing anything with the data, I validate it using libraries like `zod` or `joi`. This keeps my logic safe and prevents unexpected bugs later in the flow.
+
+* **Correct HTTP status codes**: I return codes based on the actual outcome:
+
+  * `200 OK` — successful GET/PUT/PATCH with no resource creation
+  * `201 Created` — when a new resource is created (with optional `Location` header)
+  * `400 Bad Request` — for client validation errors
+  * `404 Not Found` — when a resource is missing
+  * `500 Internal Server Error` — for unhandled or unexpected server issues
+
+* **Consistent API response shape**: Every endpoint returns the same response structure:
+
+  ```ts
+  {
+    success: boolean,
+    data: any,
+    message: string,
+    timestamp: new Date().toISOString()
+  }
+  ```
+
+  This consistency helps the frontend handle responses predictably, regardless of the specific endpoint.
+
+* **Clear separation of concerns**: I follow a layered architecture:
+
+  * **Routes**: define the endpoint and attach basic validation
+  * **Controllers**: contain business logic and data formatting
+  * **Services**: perform DB queries or external API calls
+  * **Middlewares**: handle cross-cutting concerns like auth, logging, or rate limiting
+
+Each layer has a single, well-defined responsibility. This makes the project easier to test, scale, and maintain over time — and helps avoid the "everything in one file" anti-pattern that quickly becomes unmanageable.
+
+### CORS Setup and Edge Cases
+
+You install `npm i cors @types/cors` because your frontend (usually running on port 3000) needs to access your backend (often on a different port, like 3001), and without enabling CORS, the browser will block these cross-origin requests for security reasons. The middleware `app.use(cors())` must be placed **before** your route definitions — middleware order matters — because it needs to intercept and modify the response headers early in the request lifecycle. What it effectively does is add headers like `Access-Control-Allow-Origin: *`, which tells the browser: "this server allows requests from any origin." This is necessary for local development, where frontend and backend are running on different ports or hosts, even though they’re on the same machine. Without it, fetch requests from your frontend will silently fail due to CORS policy enforced by the browser, not by Express itself.
 
 ## 3. A bit of React
 
-React tiene componentes que usan useState para manejar estado local con el patrón `const [data, setData] = useState(valor)` donde siempre obtienes `[valorActual, funcionParaCambiarlo]` (similar a como Python retorna tuplas), y si usas asignación directa en lugar de la función setter, React no detecta el cambio y no re-renderiza (porque React compara por identidad de objeto, no por valor). useEffect maneja efectos secundarios como API calls o suscripciones (no decide qué renderizar, eso lo hace el JSX que retornas), donde `useEffect(() => {}, [])` con array vacío se ejecuta una vez al montar como `__init__` en Python (útil para fetch inicial de datos), sin array se ejecuta en cada render (peligroso, puede crear loops infinitos), y con `[variable]` se ejecuta cuando esa variable cambia (como un watcher reactivo). No puedes hacer useEffect async directamente porque espera retornar una función de cleanup o undefined, no una Promise (las funciones async siempre retornan Promise), entonces defines una función async dentro y la llamas inmediatamente `useEffect(() => { const fetchData = async () => { await api(); }; fetchData(); }, [])` (patrón común en React, no es técnicamente IIFE). Los early returns como `if (loading) return <div>Loading...</div>` evalúan estados problemáticos antes del render principal (evita renderizar JSX innecesario y mejora legibilidad), y cada `setLoading(true)` dispara un re-render completo ejecutando toda la función del componente con los nuevos valores de estado (React usa reconciliación para optimizar qué DOM actualizar realmente). useCallback memoriza funciones para que mantengan la misma referencia entre renders (React compara por referencia de objeto, no por contenido), útil para optimizar cuando pasas funciones como props a componentes hijos porque evita re-renders innecesarios de esos hijos cuando las dependencias no han cambiado. We will work with all this later.
+React components use `useState` to manage local state. The pattern is:
+
+```js
+const [data, setData] = useState(initialValue);
+```
+
+This always gives you a tuple: the current value and a setter function — similar to Python’s tuple unpacking.
+
+If you try to update the value by assigning directly to `data`, React won't detect the change, and the component won't re-render. That's because React checks for changes by **object identity**, not by value.
+
+---
+
+For side effects (like API calls, timers, subscriptions), React uses `useEffect`.
+
+Example:
+
+```js
+useEffect(() => {
+  // side effect here
+}, []);
+```
+
+* With an **empty array**, it runs once when the component mounts — similar to `__init__` in Python.
+* If you **omit the array**, it runs on **every render** — which can create infinite loops if not handled properly.
+* If you provide a **dependency array** like `[value]`, the effect will run whenever that value changes.
+
+---
+
+You can't make `useEffect` itself `async` — it must return either a cleanup function or `undefined`, not a Promise. Since `async` functions always return a Promise, the common pattern is:
+
+```js
+useEffect(() => {
+  const fetchData = async () => {
+    await apiCall();
+  };
+
+  fetchData();
+}, []);
+```
+
+This is a common idiom in React — not technically an IIFE, but functionally similar.
+
+---
+
+To handle loading states or early exit conditions, use **early returns** in the render logic:
+
+```js
+if (loading) return <div>Loading...</div>;
+```
+
+This helps avoid rendering unnecessary JSX and makes the logic easier to follow.
+
+Every time you call `setLoading(true)` or any other state setter, React triggers a **re-render**. The entire function runs again with the new state, and React uses its reconciliation algorithm to figure out what actually needs to be updated in the DOM.
+
+---
+
+`useCallback` is a hook that **memoizes functions**. This keeps the same function reference between renders unless its dependencies change:
+
+```js
+const handleClick = useCallback(() => {
+  doSomething();
+}, [dependency]);
+```
+
+This is useful when passing functions as props to child components. If the reference stays the same, the child component won’t unnecessarily re-render — which is good for performance.
 
 ## 4. Setting the Node
 
-Primero generamos una cuenta Ethereum con: `docker run -v ./data:/data -v ./pwd.txt:/p.txt ethereum/client-go:v1.13.15 account new --datadir /data --password /p.txt` tras crear un `pwd.txt` con una contraseña (por ejemplo “123456”). Esto produce una dirección pública aleatoria junto con su clave privada, cifrada y almacenada en `./data/keystore`. Aquí aún no existe ninguna blockchain: la cuenta se basa solo en operaciones criptográficas locales (clave privada → dirección pública), y la probabilidad de colisión es tan baja que se considera irrelevante. Además, la dirección generada es totalmente agnóstica de la red: no "pertenece" a ninguna testnet o mainnet —vive en otro plano matemático— y puede usarse en cualquier red si se importa su clave privada; si la incluimos en el genesis de una red local, puede tener saldo inicial incluso si jamás ha sido usada o conocida por ningún nodo. A continuación, creamos un archivo `genesis.json` para definir los parámetros de nuestra red privada: usamos Proof of Authority (PoA) por ser más práctico para entornos de desarrollo (bloques rápidos, sin pruebas de trabajo), y configuramos `chainId`, `gasLimit`, `period`, `epoch`, etc. En `extraData` insertamos: 32 bytes de padding (ceros), la dirección del validador, y 65 bytes para una firma (en el bloque génesis no se valida, pero es obligatorio en estructura). También incluimos en `alloc` cualquier dirección que queramos que tenga saldo inicial —la cuenta generada por Geth, y por ejemplo una generada en MetaMask. No importa si esa address nunca ha sido “creada” en el nodo o no tiene clave privada accesible: las direcciones existen por definición matemática, no necesitan ser registradas ni descubiertas. El nodo ni las “conoce” ni las “crea”: simplemente están. Luego inicializamos la blockchain con: `docker run -v ./genesis.json:/genesis.json -v ./data:/data ethereum/client-go:v1.13.15 init --datadir /data /genesis.json`. Esto genera la estructura del estado en disco (`chaindata`, `ancient`, etc.), persistente en `./data`, y es crucial entender que aunque el contenedor sea efímero (si usamos `--rm`), la cadena no se pierde porque su estado está en el volumen montado. Para arrancar el nodo y activar la red ejecutamos: `docker run --rm -v ./datos:/data -v ./pwd.txt:/p.txt -p 5556:8545 ethereum/client-go:v1.13.15 --datadir /data --unlock "0x52f23bf558697b1d4f480e1aa27d7852709b1cc0" --password /p.txt --allow-insecure-unlock --mine --miner.etherbase "0x52f23bf558697b1d4f480e1aa27d7852709b1cc0" --nodiscover --http --http.addr "0.0.0.0" --http.port 8545 --http.api "admin,eth,net,web3" --http.corsdomain "*" --ipcdisable`. Esto lanza el nodo, activa la minería PoA (basta con ser validador, no se resuelven puzzles), y expone la API JSON-RPC en localhost:5556 para que herramientas como MetaMask o `curl` puedan interactuar (`geth` acepta comandos como `curl -X POST --data '{"jsonrpc":"2.0","method":"eth_blockNumber",...}' http://localhost:5556`). `--ipcdisable` evita conflictos en WSL2, `--nodiscover` desactiva el descubrimiento de pares (útil en desarrollo aislado), y `--allow-insecure-unlock` permite desbloquear la cuenta sin IPC, algo inseguro en producción pero práctico en local. La blockchain ahora “vive”: se generan bloques automáticamente, y cualquier address con clave privada puede conectarse e interactuar (ej. vía MetaMask). Si una cuenta fue incluida en `alloc`, verá saldo inicial; si no, simplemente comienza con 0. No es que “no exista”: simplemente aún no ha hecho nada visible en la red. Podemos añadir esta red a MetaMask manualmente con el mismo `chainId` y la RPC URL `http://localhost:5556`, y cualquier cuenta con clave importada podrá firmar y enviar transacciones. En resumen: las cuentas son independientes de la red (no hay registro central), su existencia es matemática y pueden aparecer en cualquier blockchain si se las referencia (ej. en `alloc`); el estado de la blockchain (número de bloque, saldos, historial) se guarda en `./data` y persiste aunque borres el contenedor; el contenedor es efímero, pero la red vive en tu disco; la API RPC está disponible vía HTTP para herramientas como MetaMask o `curl`; y la configuración PoA permite simular entornos realistas de Ethereum en local, con control total sobre la minería, validadores, saldos y nodos, sin depender de terceros ni internet.
+We start by generating an Ethereum account using the following command:
 
-## 5. Rutas del servidor
+```bash
+docker run -v ./data:/data -v ./pwd.txt:/p.txt ethereum/client-go:v1.13.15 account new --datadir /data --password /p.txt
+```
 
-Vamos a hacer POST api/faucet/:address/:amount y devolvera {address:   amount:    fecha} luego un GET /api/balance/:address    y deovlera {address    balance    fecha     }   y luego un GET /api/isAlive    devuvle {alive: true}
-No ncesitaremos rutas trasnfer ya que estas se realzian entre front y metamask
-podreemos probarlas via curl http://localhost:3000/isAlive
-curl http://localhost:3000/balance/0xxxxxxxx
-curl -X POST http//localhost:3000/0x333/0.1
-no necesitamos uan funcion en backend que haga el transfer porque reuqire signing y eso son datos sensibles que mejor debe maneajr metamask ineteracutnado diemrcatne con el frontend de react
-he creado un app.get api/balance/:address en backend que hace un fetch al nodo 5556 guarnado el resulado en resposne y leug olo devuevle, y probaba curl pero no me dejaba. he visto luego con lsof -i :3333 que era un puerto cogido por node.js... asi que el curl se uedaba colgado. he cambiado a port 3000 y ya tira(tambien he actualizado este README para que conste 3000 en todo, simepemten recuerda estam orealej de los peurtos).
-entonces el obtener balancelo hacemos lanzano un post a eth_getBalance en nuestro endpoint de api/balance/:address ... y lo deovlvemos como res.json(...)
-Como curiosidad hay una liberari llamada ethers que entre otras csas tambien permite hacerlo asi :  const { address } = req.params;
-    const provider = new ethers.JsonRpcProvider("http://localhost:5556");
-    const balance = await provider.getBalance(address);
+This requires a `pwd.txt` file containing a password (e.g. `"123456"`). The result is a randomly generated public address along with its private key, encrypted and stored in `./data/keystore`.
+
+At this point, no blockchain exists yet — the account is created purely through local cryptographic operations (private key → public address). The probability of address collision is so low that it's considered negligible. Importantly, the address is completely **network-agnostic** — it doesn’t "belong" to any testnet or mainnet. It exists on a purely mathematical level and can be used on any network simply by importing its private key. If we include it in the genesis file of a local network, it can start with a balance — even if it’s never been used or known by any node.
+
+Next, we define our own private network by creating a `genesis.json` file. We use **Proof of Authority (PoA)**, which is more practical for development environments (fast blocks, no PoW mining required). In this file, we configure parameters such as `chainId`, `gasLimit`, `period`, `epoch`, and so on. The `extraData` field includes 32 bytes of padding (zeros), the validator address, and 65 bytes for a signature — the signature isn’t verified in the genesis block, but its presence is required structurally.
+
+We also populate the `alloc` field with any addresses we want to pre-fund — including the Geth-generated address and, optionally, one generated in MetaMask. Whether or not the address was ever "created" or its private key is known to the node doesn’t matter: addresses in Ethereum exist by mathematical definition. The node doesn't "create" or "discover" them — they simply exist.
+
+To initialize the blockchain, we run:
+
+```bash
+docker run -v ./genesis.json:/genesis.json -v ./data:/data ethereum/client-go:v1.13.15 init --datadir /data /genesis.json
+```
+
+This sets up the on-disk state structure (`chaindata`, `ancient`, etc.) in `./data`. Even if the container is removed (with `--rm`), the blockchain state persists because it lives in the mounted volume.
+
+We then start the node with:
+
+```bash
+docker run --rm -v ./data:/data -v ./pwd.txt:/p.txt -p 5556:8545 ethereum/client-go:v1.13.15 \
+  --datadir /data \
+  --unlock "0x52f23bf558697b1d4f480e1aa27d7852709b1cc0" \
+  --password /p.txt \
+  --allow-insecure-unlock \
+  --mine \
+  --miner.etherbase "0x52f23bf558697b1d4f480e1aa27d7852709b1cc0" \
+  --nodiscover \
+  --http \
+  --http.addr "0.0.0.0" \
+  --http.port 8545 \
+  --http.api "admin,eth,net,web3" \
+  --http.corsdomain "*" \
+  --ipcdisable
+```
+
+This starts the node, enables PoA mining (just by being a validator — no puzzles to solve), and exposes the JSON-RPC API on `localhost:5556`, making it accessible to tools like MetaMask or `curl`.
+
+* `--ipcdisable` avoids IPC conflicts in environments like WSL2.
+* `--nodiscover` disables peer discovery — useful for isolated development.
+* `--allow-insecure-unlock` enables account unlocking over HTTP, which is insecure in production but acceptable for local use.
+
+At this point, the blockchain is **alive** — blocks are mined automatically, and any account with a private key can connect and interact (e.g., via MetaMask). If an account was included in `alloc`, it will show a balance; otherwise, it simply starts at zero. It’s not that the address doesn’t "exist" — it just hasn’t done anything yet on the chain.
+
+You can manually add this local network to MetaMask using the same `chainId` and the RPC URL `http://localhost:5556`. Any account with an imported private key can sign and send transactions.
+
+### In Summary:
+
+* **Accounts are network-independent** — they exist by mathematical definition and can appear in any blockchain if referenced (e.g. in `alloc`).
+* **Blockchain state** (blocks, balances, transaction history) is stored in `./data` and persists across container restarts or deletions.
+* **The container is ephemeral**, but the blockchain lives on your disk.
+* **The RPC API** is accessible via HTTP and compatible with tools like MetaMask or `curl`.
+* **PoA configuration** makes it easy to simulate realistic Ethereum environments locally, giving full control over mining, validators, balances, and network behavior — all without relying on third parties or internet connectivity.
+
+## 5. Server Routes
+
+This section outlines the backend API endpoints required for our application. These routes will handle interactions with our private blockchain node that do not require a user's private key, such as checking balances and distributing funds from a faucet.
+
+### API Endpoints
+
+We will implement the following server-side routes:
+
+1.  **`GET /api/isAlive`**
+    *   **Purpose**: A simple health check to verify that the server is running.
+    *   **Returns**: `{ "alive": true }`
+
+2.  **`GET /api/balance/:address`**
+    *   **Purpose**: To query the balance of a specific Ethereum address.
+    *   **Returns**: `{ "address": "0x...", "balance": "1000000000000000000", "date": "..." }`
+
+3.  **`POST /api/faucet/:address/:amount`**
+    *   **Purpose**: To send a specified amount of ETH from a pre-funded faucet account to a user's address.
+    *   **Returns**: `{ "address": "0x...", "amount": "0.1", "date": "..." }`
+
+**Architectural Note**: We do not need backend routes for user-to-user transfers. These transactions are handled directly on the frontend, where the user can sign them securely using MetaMask. This prevents sensitive data like private keys from ever touching our server.
+
+### Testing with curl
+
+You can test these endpoints from your terminal using `curl`:
+
+```bash
+# 1. Check if the server is alive
+curl http://localhost:3000/api/isAlive
+
+# 2. Query the balance of an address
+curl http://localhost:3000/api/balance/0xYOUR_ADDRESS
+
+# 3. Request 0.1 ETH from the faucet
+curl -X POST http://localhost:3000/api/faucet/0xYOUR_ADDRESS/0.1
+```
+
+### Technical Implementation with `ethers.js`
+
+The `ethers` library greatly simplifies backend interactions with the Ethereum node.
+
+**Note on Ports**: Our local Geth node is running on port `5556`. Our backend server will run on port `3000`. (An initial attempt to use port 3333 failed as it was already in use, which was diagnosed using `lsof -i :3333`).
+
+#### **Balance Endpoint (`/api/balance/:address`)**
+
+To get an address's balance, we create a provider connected to our node and call the `eth_getBalance` JSON-RPC method via `ethers`.
+
+```javascript
+// Example handler for the balance route
+import { ethers } from "ethers";
+
+// ... inside an async express handler
+const { address } = req.params;
+const provider = new ethers.JsonRpcProvider("http://localhost:5556");
+const balance = await provider.getBalance(address);
+
 res.json({
-        address address,
-        balance: balance.toString(),   becaaaaaaaaaaaaause return a BigInt and JSON cannot serialize values BiINT directly
-        date: ...
-a continuacion 
+    address: address,
+    balance: balance.toString(), // BigInt must be converted to a string for JSON
+    date: new Date()
+});
+```
 
-ether nos permite leer el archivo keystore de la address que nos hemos creado y puesto como nodo validador en el genesis, cuya contraseña tenemos guardada en local
-es decir : recogemos los parametros de la peticion, creamos un provider (nuestro nodo 5556) especificmaos la ruta del keystore, extraemos la ruta y con esa ruta nos creamos una waller usando ethers.Waller.fromEncryptedJson(rutaData, "123456" password), y la conectamos al provider (waller.connect(provider)) nuestro nodo (localhost:5556) y luego hacemos await walletConnected.sendTransaction(to: address, value: ethers.parseEther(amount)) y al final await tx.wait(). Por todo esto, este app.get debe ser async. Luego el curl lo haremos pasndo a nuestro backend (localhost:3000) al url api/faucet/<address>/amount, siendo address el de metamkas que habiamso reistrado en genesis para asi poder ver a traves de metamask como se actualiza su valor (ethers basicamente nos sirve para crear un objeto wallet con el keystore content y nuestra password)
+#### **Faucet Endpoint (`/api/faucet/:address/:amount`)**
 
-## 6. Volviendo al front
+The faucet requires our server to have its own wallet to send funds. The process is as follows:
 
-Vamos a empezar desde cero. Creamos un template de front desde el directorio raíz mediante npm create vite@latest front -- --template react-ts, volvemso a hacer npm install, ponemos tailwindcss, postcss, autoprefixer  y npm install -D tailwindcss con luego un npx tailwindcss init -p crear los tailwind.config.js y postcss.config.js. Susitutimos contenido en tailidnc.cofnig.js and in index.css con las directivas. Y simplificmaos app.tsx. actualziamos tscofnig.json para shadcn  "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-y npm i -D @types/node
-y esto al vite.config.ts : resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-y para que vite recargue (evtiar problemas que da WSL2) ponemos en el vite.cofnig.ts server: {
-    watch: {
-      usePolling: true,
-      interval: 1000,
-    },
-    host: true, // This allows access from outside the container/WSL
-    port: 5173,
-npx shadcn@latest init, which creates front/src/lib/utils.ts.
-utils.ts lets us add components sin tener que especificra el directorio completo
-tambien modifica index.css, lo llena de 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.5rem
-  }
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%
-  }
-}
+1.  **Load Faucet Wallet**: Read the encrypted keystore JSON file of our pre-funded validator/faucet account.
+2.  **Create Provider**: Instantiate a `JsonRpcProvider` connected to our node (`http://localhost:5556`).
+3.  **Decrypt Wallet**: Create a wallet instance from the encrypted keystore using its password: `ethers.Wallet.fromEncryptedJson(keystoreData, "password")`.
+4.  **Connect Wallet to Provider**: This allows the wallet to query the network (for nonce, gas price, etc.) and send transactions.
+5.  **Send Transaction**: Construct and send the transaction: `await wallet.sendTransaction({ to: address, value: ethers.parseEther(amount) })`.
+6.  **Wait for Confirmation**: Optionally, wait for the transaction to be mined to ensure it was successful: `await tx.wait()`.
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-}
-ahora vamos a instalar un boton
-npx shadcn@latest add button y lo guarda en src/components/ui/button.tsx
+**Important**: All route handlers performing these actions must be `async` functions to correctly use `await`.
 
-## 7. React
+## 6. Frontend Setup
 
-Lo omcpcaido esm epzarp or algun sitio. lo mejro es emepzar pro un router, que enlaza links con diferentes componentes.
+We will build the frontend from scratch using Vite, React, and TypeScript.
+
+### Initial Project Setup
+
+```bash
+# Create a new Vite project with the React + TypeScript template
+npm create vite@latest front -- --template react-ts
+
+# Navigate into the new project directory and install dependencies
+cd front
+npm install
+```
+
+### Installation and Configuration of Tailwind CSS
+
+```bash
+# Install Tailwind CSS and its peer dependencies
+npm install -D tailwindcss postcss autoprefixer
+
+# Generate tailwind.config.js and postcss.config.js
+npx tailwindcss init -p
+```
+Next, update the `content` array in `tailwind.config.js` and add the Tailwind directives to `src/index.css` as per the official documentation.
+
+### Configuration for shadcn/ui
+
+Before installing `shadcn/ui`, we need to configure path aliases for cleaner imports.
+
+1.  **Update `tsconfig.json`**: Add `baseUrl` and `paths` to support the `@/*` alias.
+
+    ```json
+    "compilerOptions": {
+        // ...
+        "baseUrl": ".",
+        "paths": {
+          "@/*": ["./src/*"]
+        }
+    }
+    ```
+
+2.  **Install Node Types**: Required for path resolution.
+    ```bash
+    npm i -D @types/node
+    ```
+
+3.  **Update `vite.config.ts`**: Configure Vite to resolve the alias and adjust server settings for better development, especially within WSL2.
+
+    ```javascript
+    import path from "path";
+    import { defineConfig } from 'vite'
+    // ...
+
+    export default defineConfig({
+      // ...
+      resolve: {
+        alias: {
+          "@": path.resolve(__dirname, "./src"),
+        },
+      },
+      server: {
+        watch: {
+          usePolling: true,  // Fixes HMR issues in some environments like WSL2
+          interval: 1000,
+        },
+        host: true, // Allows access from the network
+        port: 5173,
+      }
+    })
+    ```
+
+### Installation of shadcn/ui
+
+```bash
+# Initialize shadcn/ui in your project
+npx shadcn-ui@latest init
+```
+This command creates `src/lib/utils.ts` (for merging Tailwind classes) and modifies `index.css` with CSS variables for theming. You can then add individual components as needed.
+
+```bash
+# Example: Add the Button component
+npx shadcn-ui@latest add button
+```
+Components are added directly to your source tree, typically in `src/components/ui/`, giving you full control over their code.
+
+## 7. React Application Architecture
+
+With the project set up, we can define the core structure of our React application, focusing on routing and state management.
+
+### 7.1. Routing with `react-router-dom`
+
+The best way to structure a multi-page application is with a router. We'll use `react-router-dom`.
+
+```bash
 npm i react-router-dom
+```
 
-al router provider le pasamos el router, conlo cual va a ser cosncinete de todas las ruta
-al accceder al a pliaccion lo primero que se presenta es el dashboard
+The core idea is to map URL paths to specific React components. We will create a main `Dashboard` layout that contains a shared `Header` and a dynamic content area for different pages like `Faucet`, `Balance`, etc.
 
-export function Home() {
-  return <div>Home</div>;
-}
+**Example Implementation (`App.tsx`)**:
 
-export function Faucet() {
-  return <div>Faucet</div>;
-}
+```tsx
+import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
 
-export function Balance() {
-  return <div>Balance</div>;
-}
+// 1. Define placeholder components (can be moved to separate files later)
+export function Home() { return <div>Home</div>; }
+export function Faucet() { return <div>Faucet</div>; }
+export function Balance() { return <div>Balance</div>; }
+export function Transfer() { return <div>Transfer</div>; }
+export function Header() { return <div>Header with Navigation Links</div>; }
 
-export function Transfer() {
-  return <div>Transfer</div>;
-}
-
-export function Header() {
-  return <div>Header</div>;
-}
-
+// 2. Define the main layout component
 export function Dashboard() {
   return (
     <div className='container'>
       <Header />
       <h1 className="text-xl">Dashboard</h1>
+      {/* The Outlet component renders the active child route */}
       <Outlet />
     </div>
-  )
+  );
 }
 
+// 3. Create the router configuration
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <Dashboard />,
+    element: <Dashboard />, // The Dashboard is the layout for all nested routes
     children: [
-      {path: "home", element: <Home />},
-      {path: "faucet", element: <Faucet />},
-      {path: "balance", element: <Balance />},
-      {path: "transfer", element: <Transfer />}
+      { path: "home", element: <Home /> },
+      { path: "faucet", element: <Faucet /> },
+      { path: "balance", element: <Balance /> },
+      { path: "transfer", element: <Transfer /> }
     ]
   }
 ]);
 
+// 4. The root App component provides the router to the application
 export default function App() {
   return (
     <div>
       <RouterProvider router={router} />
     </div>
-  )
+  );
+}
+```
+
+**Key Concept: The `<Outlet />` Component**
+The `<Outlet />` tag within the `Dashboard` component is a placeholder. When you navigate to a child route like `/faucet`, `react-router-dom` will render the `<Faucet />` component in place of the `<Outlet />`. This allows you to create persistent layouts with a shared `Header`, `Footer`, or `Sidebar`.
+
+**Good Practice**: Start with simple components in one file. As they grow, refactor them into their own files (e.g., `src/components/Header.tsx`) and import them where needed. Clean imports lead to a more maintainable codebase.
+
+### 7.2. Global State Management with React Context
+
+Many components (`Header`, `Faucet`, `Balance`) will need to access shared information, like the user's connected MetaMask account address. Instead of passing this data down through many layers of props ("prop drilling"), we can use React's Context API to create a global state.
+
+**Implementation (`App.tsx`)**:
+
+```tsx
+import React, { useState, useContext, createContext } from 'react';
+// ... other imports
+
+// 1. Create a Context
+const UserContext = createContext(null);
+
+// ... router configuration from before
+
+export default function App() {
+  // 2. Use useState to hold the global state
+  const [user, setUser] = useState({
+    acc: null // Initially, no account is connected
+  });
+
+  // 3. Wrap the application in the Context Provider
+  // Pass both the state and the function to update it
+  return (
+    <UserContext.Provider value={{ user, setUser }}>
+      <div>
+        <RouterProvider router={router} />
+      </div>
+    </UserContext.Provider>
+  );
 }
 
-http://localhost:5173
+// In any child component, you can now access the global state:
+// const { user, setUser } = useContext(UserContext);
+```
+By wrapping our entire app in `UserContext.Provider`, any component in the tree can access and modify the `user` state. When `setUser` is called, all components using this context will automatically re-render with the new data.
 
-devuelve una pantalla donde se ve Header y Dashboard
-pero si ponemos http://localhost:5173/faucet, muestra Headaer y sahbodrd y debajo Faucet
+### 7.3. Interacting with MetaMask
 
-la idea es ir conviritnedo los componentes a ficheros
+To make our application useful, we need to connect to the user's MetaMask wallet.
 
-osea basicamente hemos creado un router con react-router-dom donde metemos el arbol de posibles endpoints, path, element, children. El element debe ser una "export function" defindia mas arriba. Si esta en el path "/", sera el punto de entrada. Y en este dashboard dentro de su definicion podemos ponerle otro componente (header) que contenga los links (no cosnta en el routing, es simplemente un componente que contendra los links). Y muy remarcable, el <Outlet /> tag lo que hace es poner el children en el que nos encontramos de la URL, es decir si estamos en Dashboard y tiene un children, al entrar a dashbaord ("/") /ese_children pues <Outlet/> va a ser ese componente children.
+1.  **Initial Connection**: We use the `useEffect` hook to attempt a connection when the app first loads.
+2.  **Listening for Changes**: We must also listen for events, as the user can change their active account in MetaMask at any time.
 
-Los componentes los podemos aislar en front/src/components/ui y los vamos colocando alli. Esto siginfica que nceistarmeos mucho import, pero está bien. No nso precoemos por los improts, son enceairos para leugo tener los compoentesn separados y claros, mejor que ir navegnado arriba ya abjo en un mismo archivo
+**Example in a component (e.g., `Header.tsx`)**:
 
-ahroa queremos un estado global porque queremos traer la cuenta de metamask al compoentne header y esa cuenta la van atener que usar otros componentes. antes era muy complejo en react. tenemos que meter en esta aplciacion ese estado global con la finromacion minima que deben compartir todos los componentes.
+```tsx
+import { useEffect, useContext } from 'react';
+// ... import UserContext
 
-luego añadiendo export default function App() {
-  const [user, setState] = useState({
-    acc: "xxxxxxxx"
-  }); // contexto para todos los scopes derivados
+export function Header() {
+  const { user, setUser } = useContext(UserContext);
+
+  useEffect(() => {
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) {
+      alert("Please install MetaMask!");
+      return;
+    }
+
+    // Function to handle account changes
+    const handleAccountsChanged = (accounts: string[]) => {
+      if (accounts.length === 0) {
+        console.log('Please connect to MetaMask.');
+        setUser({ ...user, acc: null });
+      } else if (accounts[0] !== user.acc) {
+        // Update global state with the new account
+        setUser({ ...user, acc: accounts[0] });
+      }
+    };
+
+    // Request accounts on initial load
+    ethereum.request({ method: 'eth_requestAccounts' })
+      .then(handleAccountsChanged)
+      .catch((err: Error) => console.error(err));
+
+    // Set up the event listener for account changes
+    ethereum.on('accountsChanged', handleAccountsChanged);
+
+    // Clean up the listener when the component unmounts
+    return () => {
+      ethereum.removeListener('accountsChanged', handleAccountsChanged);
+    };
+  }, []); // Empty dependency array ensures this runs only once on mount
+
   return (
-    <UserContext.Provider value={{user, setState}}>   /// vemos que suele ser el mas externo del return raiz en app
-
-      <div>
-        <RouterProvider router={router} /> {/* se entera de las rutas y sus contenidos */}
-      </div>
-      
-    </UserContext.Provider>
-  )
-}en la app.tsx el useState, lo que tiene, osea, en chapters anteriores vimos que useState servia para definiru n condicional y React se enterara de sucambio, pero eske ademas es global. podemos deifnir un objeot con llaves y luego acceder a él porque estamso deinfeidno usercontect provider con value y luego en elementos en casdcada podremos acceder a él usando const { user } = useContext(UserContext); y lo especial de esto es que se va acambiar en todos los elementos en que aparece, a la vez. por eso es de contexto global.
-ten presnte que puede haber compoentnes que no necsiaramente esten en el router, y que el outlet es la forma de meter elements dentro de otros en el front cuando se va al path, si no entro al path, el outlet no se muestra. esta alli, uciado en el cofigo fuente de un componente, hsta que ponemos la URL acorde entonces se muestra.
-aqui usaremos useeffect para que ocurra algo. apra conectar a metamask.
-sacamos el inycetado etehreum del window (window as any) .ethereum y le hacemos un API JSON RPC request lueg oparseamos la repuesta para setState acc: acc[0] pero claor y si leug ovolvemos a cmabiar, cambiar ¿? no, porque use Effects olo cambia al empezar, o cuando cambia uan variable... y en este caso lo que quermeos es que lacamibar desdem ektamask, nuestra app esuche y cambie tamiben la var state = {acc} asi que usamos un ehterum.on("accountsChanged", ... set astate acc : acc[0]), un lsitswener. asi aqui se registra unav ez y leugo estar eucahndo siemrpe.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    <header>
+      {/* Display the connected account */}
+      <div>Connected Account: {user.acc || 'Not Connected'}</div>
+    </header>
+  );
+}
+```
+This pattern ensures our application is always synchronized with the user's MetaMask wallet state.
