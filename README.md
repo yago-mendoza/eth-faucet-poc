@@ -14,16 +14,6 @@ The project starts with `npm create vite@latest`. Tailwind is configured, ShadCN
 
 Transfers are handled from the frontend via MetaMask. Backend endpoints are tested with `curl` or Postman.
 
-The frontend includes a header with navigation, MetaMask connection, and periodic node health checks. Components for Faucet, Transfer, and Balance are created with routes and navigation tested. Forms are built using `react-hook-form` and `zod` for validation. Each component handles user input, triggers backend requests, and manages errors.
-
-* Faucet asks for an address.
-* Transfer asks for address and amount.
-* Balance just needs the address.
-
-A demo video with tests should be recorded, along with a `README.md` with setup instructions.
-
-For deployment, the frontend and backend can be deployed to Vercel. The Ethereum node can be exposed using Ngrok, with environment variables configured and MetaMask access enabled. Alternatively, I can deploy on AWS by creating an account, setting up a VPC and EC2 instance, installing the node manually (no Docker), cloning the repos, and running tests.
-
 # Steps
 
 ## 1. Setting frontend up
